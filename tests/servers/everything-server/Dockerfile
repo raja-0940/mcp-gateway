@@ -1,7 +1,6 @@
-FROM --platform=$BUILDPLATFORM node:22.12-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:22.12-bookworm AS builder
 
 # Install git to clone the upstream repo
-RUN apk add --no-cache git
 
 # Clone the MCP servers repo and extract everything server
 # Pinned to commit before SDK bump that broke Zod types (2026-01-06)
@@ -16,7 +15,7 @@ WORKDIR /app
 
 RUN --mount=type=cache,target=/root/.npm npm install && npm run build
 
-FROM node:22-alpine AS release
+FROM --platform=$TARGETPLATFORM node:22-bookworm-slim AS release
 
 WORKDIR /app
 

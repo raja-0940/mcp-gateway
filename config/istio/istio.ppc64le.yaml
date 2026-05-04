@@ -1,0 +1,44 @@
+apiVersion: sailoperator.io/v1
+kind: Istio
+metadata:
+  name: default
+spec:
+  version: v1.26.3
+  namespace: istio-system
+  values:
+    global:
+      hub: quay.io/raja0940/istio-release
+      tag: 1.26.3-ppc64le
+      imagePullSecrets:
+      - quay-pull-secret
+      proxy:
+        image: proxyv2
+    pilot:
+      autoscaleEnabled: false
+      image: pilot
+      env:
+        PILOT_ENABLE_METADATA_EXCHANGE: "false"
+        PILOT_ENABLE_ALPN_FILTER: "false"
+        PILOT_ENABLE_STATS_FILTER: "false"
+    meshConfig:
+      extensionProviders:
+      - name: mcp-json-access-log
+        envoyFileAccessLog:
+          path: /dev/stdout
+          logFormat:
+            labels:
+              timestamp: "%START_TIME%"
+              method: "%REQ(:METHOD)%"
+              path: "%REQ(:PATH)%"
+              response_code: "%RESPONSE_CODE%"
+              request_id: "%REQ(X-REQUEST-ID)%"
+              traceparent: "%REQ(TRACEPARENT)%"
+              mcp_method: "%REQ(X-MCP-METHOD)%"
+              mcp_tool_name: "%REQ(X-MCP-TOOLNAME)%"
+              mcp_server_name: "%REQ(X-MCP-SERVERNAME)%"
+              mcp_session_id: "%REQ(MCP-SESSION-ID)%"
+              mcp_user_id: "%REQ(X-AUTH-IDENTITY)%"
+              duration_ms: "%DURATION%"
+              upstream_host: "%UPSTREAM_HOST%"
+              bytes_sent: "%BYTES_SENT%"
+              bytes_received: "%BYTES_RECEIVED%"
