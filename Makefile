@@ -7,6 +7,9 @@ endif
 ifeq ($(ARCH),aarch64)
     ARCH = arm64
 endif
+ifeq ($(ARCH),ppc64le)
+    ARCH = ppc64le
+endif
 
 LOG_LEVEL ?= -4
 
@@ -436,7 +439,7 @@ reload: build docker-build kind ## Build, load to Kind, and restart both control
 
 # Build multi-platform image
 docker-buildx: ## Build multi-platform container image
-	$(CONTAINER_ENGINE) buildx build --platform linux/amd64,linux/arm64 $(CONTAINER_ENGINE_EXTRA_FLAGS) -t mcp-gateway:local .
+	$(CONTAINER_ENGINE) buildx build --platform linux/amd64,linux/arm64,linux/ppc64le $(CONTAINER_ENGINE_EXTRA_FLAGS) -t mcp-gateway:local .
 
 # Download dependencies
 deps:
