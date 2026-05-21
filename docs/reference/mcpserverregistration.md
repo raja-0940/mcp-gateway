@@ -28,6 +28,7 @@
 | `tokenURLElicitation` | [TokenURLElicitationConfig](#tokenurlelicitationconfig) | No | Enables per-user token collection via URL elicitation (-32042 flow). When set, the router collects tokens from elicitation-capable clients at tool-call time. See [URL Elicitation guide](../guides/url-elicitation.md) |
 | `category` | []String | No | One or more categories for tool discovery filtering. Used by `discover_tools` to let agents filter servers by category. Default: `["uncategorised"]`. Max 3 items, max 128 chars each |
 | `hint` | String | No | Short description of what this MCP server offers. Returned by `discover_tools` to help agents decide which tools to select. Max 256 chars |
+| `tags` | []String | No | Arbitrary labels for this MCP server. Used to filter and discover tools via the `list_tags` and `filter_tools_by_tags` broker tools. Max 10 items, 1-128 chars each |
 
 ## TargetReference
 

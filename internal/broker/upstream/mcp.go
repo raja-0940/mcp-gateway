@@ -75,6 +75,11 @@ func (up *MCPServer) GetConfig() config.MCPServer {
 		cat = make([]string, len(up.Category))
 		copy(cat, up.Category)
 	}
+	var tags []string
+	if len(up.Tags) > 0 {
+		tags = make([]string, len(up.Tags))
+		copy(tags, up.Tags)
+	}
 	return config.MCPServer{
 		Name:                up.Name,
 		URL:                 up.URL,
@@ -86,6 +91,7 @@ func (up *MCPServer) GetConfig() config.MCPServer {
 		TokenURLElicitation: up.TokenURLElicitation,
 		Category:            cat,
 		Hint:                up.Hint,
+		Tags:                tags,
 	}
 }
 

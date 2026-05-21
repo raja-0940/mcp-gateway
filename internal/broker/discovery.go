@@ -37,10 +37,11 @@ To avoid loading all tool schemas upfront, use the discovery tools:
 
 // isBrokerToolName returns true if the name is a broker-internal meta-tool.
 func isBrokerToolName(name string) bool {
-	return name == discoverToolsName || name == selectToolsName
+	return name == discoverToolsName || name == selectToolsName ||
+		name == listTagsName || name == filterToolsByTagsName
 }
 
-// IsBrokerTool returns true if the given tool is a broker-internal meta-tool (discover_tools, select_tools).
+// IsBrokerTool returns true if the given tool is a broker-internal meta-tool.
 func IsBrokerTool(tool mcp.Tool) bool {
 	return isBrokerToolName(tool.Name)
 }

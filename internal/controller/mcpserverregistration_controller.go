@@ -408,6 +408,7 @@ func (r *MCPReconciler) buildMCPServerConfig(ctx context.Context, targetRoute *g
 		State:    string(mcpsr.Spec.State),
 		Category: append([]string(nil), mcpsr.Spec.Category...),
 		Hint:     mcpsr.Spec.Hint,
+		Tags:     append([]string(nil), mcpsr.Spec.Tags...),
 	}
 
 	if mcpsr.Spec.TokenURLElicitation != nil {

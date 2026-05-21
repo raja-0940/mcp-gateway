@@ -15,6 +15,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+func isBrokerMetaTool(name string) bool {
+	return name == "discover_tools" || name == "select_tools" ||
+		name == "list_tags" || name == "filter_tools_by_tags"
+}
+
 var _ = Describe("Tool Discovery", func() {
 	var (
 		testResources    []client.Object
@@ -361,7 +366,7 @@ var _ = Describe("Tool Discovery", func() {
 				_, tools, err := mcpListTools(ctx, gatewayURL, sessionID, nil)
 				g.Expect(err).NotTo(HaveOccurred())
 				for _, t := range tools {
-					if t == "discover_tools" || t == "select_tools" {
+					if isBrokerMetaTool(t) {
 						continue
 					}
 					g.Expect(t).To(Equal(selectedTool), "only selected tool and meta-tools should be returned")
@@ -470,7 +475,7 @@ var _ = Describe("Tool Discovery", func() {
 				_, tools, listErr := mcpListTools(ctx, gatewayURL, sessionID, nil)
 				g.Expect(listErr).NotTo(HaveOccurred())
 				for _, t := range tools {
-					if t == "discover_tools" || t == "select_tools" {
+					if isBrokerMetaTool(t) {
 						continue
 					}
 					g.Expect(t).To(Equal(tool2), "only re-scoped tool should be in the list")
@@ -520,7 +525,7 @@ var _ = Describe("Tool Discovery", func() {
 				g.Expect(listErr).NotTo(HaveOccurred())
 				nonMetaCount := 0
 				for _, t := range tools {
-					if t != "discover_tools" && t != "select_tools" {
+					if !isBrokerMetaTool(t) {
 						nonMetaCount++
 					}
 				}
@@ -698,7 +703,7 @@ var _ = Describe("Tool Discovery", func() {
 				g.Expect(tools).To(ContainElement("discover_tools"))
 				g.Expect(tools).To(ContainElement("select_tools"))
 				for _, t := range tools {
-					if t != "discover_tools" && t != "select_tools" {
+					if !isBrokerMetaTool(t) {
 						g.Expect(t).To(BeEmpty(), "no real tools should be visible above threshold, found: "+t)
 					}
 				}
@@ -836,7 +841,7 @@ var _ = Describe("Tool Discovery", func() {
 
 				var nonMetaTools []string
 				for _, t := range tools {
-					if t != "discover_tools" && t != "select_tools" {
+					if !isBrokerMetaTool(t) {
 						nonMetaTools = append(nonMetaTools, t)
 					}
 				}

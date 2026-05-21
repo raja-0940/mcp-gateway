@@ -241,6 +241,8 @@ func NewBroker(logger *slog.Logger, opts ...Option) MCPBroker {
 		mcpBkr.registerDiscoveryTools()
 	}
 
+	mcpBkr.registerTagsTools()
+
 	return mcpBkr
 }
 
@@ -378,13 +380,16 @@ func (m *mcpBrokerImpl) GetServerInfoByPrompt(prompt string) (*config.MCPServer,
 }
 
 // IsBrokerToolName returns true if the given tool name belongs to a broker-internal
-// meta-tool (discover_tools, select_tools). The router uses this to decide whether
-// to pass a tools/call through to the broker instead of looking for an upstream server.
+// meta-tool. The router uses this to decide whether to pass a tools/call through
+// to the broker instead of looking for an upstream server.
 func (m *mcpBrokerImpl) IsBrokerToolName(name string) bool {
+	if name == listTagsName || name == filterToolsByTagsName {
+		return true
+	}
 	if !m.discovery.enabled {
 		return false
 	}
-	return isBrokerToolName(name)
+	return name == discoverToolsName || name == selectToolsName
 }
 
 func (m *mcpBrokerImpl) Shutdown(_ context.Context) error {
