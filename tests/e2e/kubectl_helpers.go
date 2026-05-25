@@ -169,6 +169,33 @@ func IsTrustedHeadersEnabled(ctx context.Context) bool {
 	return strings.TrimSpace(string(output)) != ""
 }
 
+// SetOAuthProtectedResource patches the MCPGatewayExtension to set the oauthProtectedResource field.
+func SetOAuthProtectedResource(namespace, name string, authServers []string) error {
+	ctx := context.Background()
+	servers, _ := json.Marshal(authServers)
+	patch := fmt.Sprintf(`{"spec":{"oauthProtectedResource":{"authorizationServers":%s}}}`, servers)
+	cmd := exec.CommandContext(ctx, "kubectl", "patch", "mcpgatewayextension", name,
+		"-n", namespace, "--type=merge", "-p", patch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to patch mcpgatewayextension %s: %s: %w", name, string(output), err)
+	}
+	return nil
+}
+
+// ClearOAuthProtectedResource removes the oauthProtectedResource field from the MCPGatewayExtension.
+func ClearOAuthProtectedResource(namespace, name string) error {
+	ctx := context.Background()
+	patch := `{"spec":{"oauthProtectedResource":null}}`
+	cmd := exec.CommandContext(ctx, "kubectl", "patch", "mcpgatewayextension", name,
+		"-n", namespace, "--type=merge", "-p", patch)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to clear oauthProtectedResource on %s: %s: %w", name, string(output), err)
+	}
+	return nil
+}
+
 // IsAuthPolicyConfigured checks if AuthPolicy resources exist in the gateway namespace
 func IsAuthPolicyConfigured(ctx context.Context) bool {
 	cmd := exec.CommandContext(ctx, "kubectl", "get", "authpolicy", "-n", GatewayNamespace,
