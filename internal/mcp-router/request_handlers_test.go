@@ -247,6 +247,10 @@ func TestHandleRequestBody(t *testing.T) {
 	require.Equal(t, []uint8("/mcp"), rb.RequestBody.Response.HeaderMutation.SetHeaders[5].Header.RawValue)
 	require.Equal(t, "content-length", rb.RequestBody.Response.HeaderMutation.SetHeaders[6].Header.Key)
 
+	// internal-only headers must be stripped before forwarding to upstream
+	require.Contains(t, rb.RequestBody.Response.HeaderMutation.RemoveHeaders, "x-mcp-authorized")
+	require.Contains(t, rb.RequestBody.Response.HeaderMutation.RemoveHeaders, "x-mcp-virtualserver")
+
 	require.Equal(t,
 		`{"id":0,"jsonrpc":"2.0","method":"tools/call","params":{"name":"mytool","other":"other"}}`,
 		string(rb.RequestBody.Response.BodyMutation.GetBody()))
@@ -1154,6 +1158,8 @@ func TestHandleNoneToolCall_HairpinJWTValidation(t *testing.T) {
 		removed := rb.RequestBody.Response.HeaderMutation.RemoveHeaders
 		require.Contains(t, removed, "mcp-init-host")
 		require.Contains(t, removed, RoutingKey)
+		require.Contains(t, removed, "x-mcp-authorized")
+		require.Contains(t, removed, "x-mcp-virtualserver")
 	})
 
 	t.Run("rejects token signed by a different gateway", func(t *testing.T) {
@@ -1254,6 +1260,8 @@ func TestInitializeMCPSeverSession_PassThroughHeaders(t *testing.T) {
 				{Key: RoutingKey, RawValue: []byte("attacker-supplied-key")},
 				{Key: "x-custom-header", RawValue: []byte("custom-value")},
 				{Key: "authorization", RawValue: []byte("Bearer client-token")},
+				{Key: "x-mcp-authorized", RawValue: []byte("signed-jwt-value")},
+				{Key: "x-mcp-virtualserver", RawValue: []byte("test/vs")},
 			},
 		},
 	}
@@ -1268,6 +1276,8 @@ func TestInitializeMCPSeverSession_PassThroughHeaders(t *testing.T) {
 	require.NotContains(t, captured, "mcp-session-id", "gateway session id must not be forwarded")
 	require.NotContains(t, captured, "mcp-init-host", "router-internal header must not leak from client input")
 	require.NotContains(t, captured, RoutingKey, "router-internal header must not leak from client input")
+	require.NotContains(t, captured, "x-mcp-authorized", "broker-only filtering header must not reach upstream")
+	require.NotContains(t, captured, "x-mcp-virtualserver", "broker-only filtering header must not reach upstream")
 
 	// custom headers and authorization are passed through
 	require.Equal(t, "custom-value", captured["x-custom-header"])

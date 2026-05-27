@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"net/http"
+
 	"github.com/Kuadrant/mcp-gateway/internal/config"
 	sharedheaders "github.com/Kuadrant/mcp-gateway/internal/headers"
 	internaljwt "github.com/Kuadrant/mcp-gateway/internal/jwt"
@@ -231,7 +233,7 @@ func (s *ExtProcServer) HandleRequestHeaders(ctx context.Context, _ *eppb.HttpHe
 	requestHeaders := NewHeaders()
 	response := NewResponse()
 	requestHeaders.WithAuthority(s.RoutingConfig.MCPGatewayExternalHostname)
-	return response.WithRequestHeadersResponse(requestHeaders.Build()).Build(), nil
+	return response.WithRequestHeadersResponse(requestHeaders.Build(), internalOnlyHeaders...).Build(), nil
 }
 
 // RouteMCPRequest handles request bodies for MCP requests.
@@ -567,10 +569,10 @@ func (s *ExtProcServer) routeToUpstream(ctx context.Context, span trace.Span, mc
 	headers.WithContentLength(len(body))
 	if mcpReq.Streaming {
 		s.Logger.DebugContext(ctx, "returning streaming response")
-		calculatedResponse.WithStreamingResponse(headers.Build(), body)
+		calculatedResponse.WithStreamingResponse(headers.Build(), body, internalOnlyHeaders...)
 		return calculatedResponse.Build()
 	}
-	calculatedResponse.WithRequestBodyHeadersAndBodyResponse(headers.Build(), body)
+	calculatedResponse.WithRequestBodyHeadersAndBodyResponse(headers.Build(), body, internalOnlyHeaders...)
 	return calculatedResponse.Build()
 }
 
@@ -707,7 +709,9 @@ func (s *ExtProcServer) initializeMCPSeverSession(ctx context.Context, mcpReq *M
 				if strings.HasPrefix(key, ":") ||
 					key == "mcp-session-id" ||
 					key == "mcp-init-host" ||
-					key == RoutingKey {
+					key == RoutingKey ||
+					key == mcpAuthorizedHeader ||
+					key == mcpVirtualServerHeader {
 					continue
 				}
 				passThroughHeaders[h.Key] = string(h.RawValue)
@@ -760,11 +764,14 @@ func (s *ExtProcServer) initializeMCPSeverSession(ctx context.Context, mcpReq *M
 		}
 		var sessionCloser = func() {
 			// use a fresh context: the request-scoped ctx is canceled long before this fires
-			cleanupCtx := context.Background()
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cleanupCancel()
 			s.Logger.DebugContext(cleanupCtx, "gateway session expired closing client", "Session ", mcpReq.GetSessionID())
 			if err := clientHandle.Close(); err != nil {
 				s.Logger.DebugContext(cleanupCtx, "failed to close client connection", "err", err)
 			}
+			// terminate user-specific backend sessions that the broker cached
+			s.terminateUserSpecificSessions(cleanupCtx, mcpReq.GetSessionID())
 			if err := s.SessionCache.DeleteSessions(cleanupCtx, mcpReq.GetSessionID()); err != nil {
 				s.Logger.DebugContext(cleanupCtx, "failed to delete session", "session", mcpReq.GetSessionID(), "err", err)
 			}
@@ -851,12 +858,17 @@ func (s *ExtProcServer) HandleNoneToolCall(ctx context.Context, mcpReq *MCPReque
 			s.Logger.DebugContext(ctx, "HandleMCPBrokerRequest initialize request", "target", remoteInitializeTarget, "call", mcpReq.Method)
 			headers.WithAuthority(remoteInitializeTarget)
 			// ensure we unset the router specific headers so they are not sent to the backend
-			return response.WithRequestBodySetUnsetHeadersResponse(headers.Build(), []string{"mcp-init-host", RoutingKey}).Build()
+			return response.WithRequestBodySetUnsetHeadersResponse(headers.Build(), append([]string{"mcp-init-host", RoutingKey}, internalOnlyHeaders...)).Build()
 		}
 
 	}
 	headers.WithMCPServerName("mcpBroker")
-	// none tool call set headers
+	// re-inject internal headers stripped in the headers phase so the broker can use them for filtering
+	for _, name := range internalOnlyHeaders {
+		if v := mcpReq.GetSingleHeaderValue(name); v != "" {
+			headers.WithCustomHeader(name, v)
+		}
+	}
 	return response.WithRequestBodyHeadersResponse(headers.Build()).Build()
 
 }
@@ -931,4 +943,56 @@ func buildSSEToolError(requestID any, message string) string {
 		b.WriteString(strconv.Quote(message))
 		b.WriteString("}],\"isError\":true}}")
 	})
+}
+
+// terminateUserSpecificSessions sends HTTP DELETE to upstream user-specific
+// servers for any backend sessions cached under the given gateway session.
+// Standard server sessions are already handled by clientHandle.Close().
+func (s *ExtProcServer) terminateUserSpecificSessions(ctx context.Context, gatewaySessionID string) {
+	ctx, span := tracer().Start(ctx, "mcp-router.session-cleanup.user-specific",
+		trace.WithAttributes(componentAttr),
+	)
+	defer span.End()
+
+	sessions, err := s.SessionCache.GetSession(ctx, gatewaySessionID)
+	if err != nil {
+		span.SetStatus(codes.Error, "failed to get sessions")
+		span.RecordError(err)
+		s.Logger.ErrorContext(ctx, "failed to get sessions for cleanup", "error", err)
+		return
+	}
+	var terminated int
+	registered := s.Broker.RegisteredMCPServers()
+	for serverName, backendSessionID := range sessions {
+		if strings.HasPrefix(serverName, "token:") {
+			continue
+		}
+		for _, srv := range registered {
+			cfg := srv.Config()
+			if cfg.Name == serverName && cfg.UserSpecificList {
+				s.Logger.DebugContext(ctx, "terminating user-specific backend session", "server", serverName, "backendSession", backendSessionID)
+				if termErr := terminateMCPSession(ctx, cfg.URL, backendSessionID); termErr != nil {
+					s.Logger.ErrorContext(ctx, "failed to terminate user-specific session", "server", serverName, "error", termErr)
+				} else {
+					terminated++
+				}
+				break
+			}
+		}
+	}
+	span.SetAttributes(attribute.Int("mcp.user_specific.sessions_terminated", terminated))
+}
+
+func terminateMCPSession(ctx context.Context, serverURL, sessionID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, serverURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Mcp-Session-Id", sessionID)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return nil
 }
