@@ -231,7 +231,7 @@ func (s *ExtProcServer) HandleRequestHeaders(ctx context.Context, _ *eppb.HttpHe
 	requestHeaders := NewHeaders()
 	response := NewResponse()
 	requestHeaders.WithAuthority(s.RoutingConfig.MCPGatewayExternalHostname)
-	return response.WithRequestHeadersResponse(requestHeaders.Build()).Build(), nil
+	return response.WithRequestHeadersResponse(requestHeaders.Build(), internalOnlyHeaders...).Build(), nil
 }
 
 // RouteMCPRequest handles request bodies for MCP requests.
@@ -567,10 +567,10 @@ func (s *ExtProcServer) routeToUpstream(ctx context.Context, span trace.Span, mc
 	headers.WithContentLength(len(body))
 	if mcpReq.Streaming {
 		s.Logger.DebugContext(ctx, "returning streaming response")
-		calculatedResponse.WithStreamingResponse(headers.Build(), body)
+		calculatedResponse.WithStreamingResponse(headers.Build(), body, internalOnlyHeaders...)
 		return calculatedResponse.Build()
 	}
-	calculatedResponse.WithRequestBodyHeadersAndBodyResponse(headers.Build(), body)
+	calculatedResponse.WithRequestBodyHeadersAndBodyResponse(headers.Build(), body, internalOnlyHeaders...)
 	return calculatedResponse.Build()
 }
 
@@ -707,7 +707,9 @@ func (s *ExtProcServer) initializeMCPSeverSession(ctx context.Context, mcpReq *M
 				if strings.HasPrefix(key, ":") ||
 					key == "mcp-session-id" ||
 					key == "mcp-init-host" ||
-					key == RoutingKey {
+					key == RoutingKey ||
+					key == mcpAuthorizedHeader ||
+					key == mcpVirtualServerHeader {
 					continue
 				}
 				passThroughHeaders[h.Key] = string(h.RawValue)
@@ -760,7 +762,8 @@ func (s *ExtProcServer) initializeMCPSeverSession(ctx context.Context, mcpReq *M
 		}
 		var sessionCloser = func() {
 			// use a fresh context: the request-scoped ctx is canceled long before this fires
-			cleanupCtx := context.Background()
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cleanupCancel()
 			s.Logger.DebugContext(cleanupCtx, "gateway session expired closing client", "Session ", mcpReq.GetSessionID())
 			if err := clientHandle.Close(); err != nil {
 				s.Logger.DebugContext(cleanupCtx, "failed to close client connection", "err", err)
@@ -851,12 +854,17 @@ func (s *ExtProcServer) HandleNoneToolCall(ctx context.Context, mcpReq *MCPReque
 			s.Logger.DebugContext(ctx, "HandleMCPBrokerRequest initialize request", "target", remoteInitializeTarget, "call", mcpReq.Method)
 			headers.WithAuthority(remoteInitializeTarget)
 			// ensure we unset the router specific headers so they are not sent to the backend
-			return response.WithRequestBodySetUnsetHeadersResponse(headers.Build(), []string{"mcp-init-host", RoutingKey}).Build()
+			return response.WithRequestBodySetUnsetHeadersResponse(headers.Build(), append([]string{"mcp-init-host", RoutingKey}, internalOnlyHeaders...)).Build()
 		}
 
 	}
 	headers.WithMCPServerName("mcpBroker")
-	// none tool call set headers
+	// re-inject internal headers stripped in the headers phase so the broker can use them for filtering
+	for _, name := range internalOnlyHeaders {
+		if v := mcpReq.GetSingleHeaderValue(name); v != "" {
+			headers.WithCustomHeader(name, v)
+		}
+	}
 	return response.WithRequestBodyHeadersResponse(headers.Build()).Build()
 
 }

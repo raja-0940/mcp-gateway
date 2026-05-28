@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	mcpv1alpha1 "github.com/Kuadrant/mcp-gateway/api/v1alpha1"
 	"github.com/Kuadrant/mcp-gateway/internal/broker/upstream"
 	"github.com/Kuadrant/mcp-gateway/internal/config"
 	"github.com/Kuadrant/mcp-gateway/internal/tests/server2"
@@ -228,6 +229,41 @@ func TestGetServerInfo(t *testing.T) {
 	svr, err = b.GetServerInfo("tt_orbit_mars")
 	require.Error(t, err)
 	require.Nil(t, svr)
+}
+
+func TestGetServerInfo_UserSpecificLongestPrefix(t *testing.T) {
+	b := NewBroker(logger)
+	bImpl, ok := b.(*mcpBrokerImpl)
+	require.True(t, ok)
+
+	// two user-specific servers with overlapping prefixes
+	bImpl.mcpServers["short"] = upstream.NewActiveForTesting(createTestManager(t, "short", "gh_", []mcp.Tool{}))
+	bImpl.mcpServers["long"] = upstream.NewActiveForTesting(createTestManager(t, "long", "gh_repos_", []mcp.Tool{}))
+
+	// mark both as user-specific so prefix fallback is used
+	for id, srv := range bImpl.mcpServers {
+		cfg := srv.Config()
+		cfg.UserSpecificList = true
+		bImpl.mcpServers[id] = upstream.NewActiveForTesting(createTestManagerUserSpecific(t, cfg))
+	}
+
+	svr, err := b.GetServerInfo("gh_repos_search")
+	require.NoError(t, err)
+	require.NotNil(t, svr)
+	require.Equal(t, "long", svr.Name, "should match longest prefix gh_repos_ not gh_")
+
+	svr, err = b.GetServerInfo("gh_stars")
+	require.NoError(t, err)
+	require.NotNil(t, svr)
+	require.Equal(t, "short", svr.Name, "should match gh_ when gh_repos_ doesn't match")
+}
+
+func createTestManagerUserSpecific(t *testing.T, cfg config.MCPServer) *upstream.MCPManager {
+	t.Helper()
+	mcpServer := upstream.NewUpstreamMCP(&cfg)
+	manager, err := upstream.NewUpstreamMCPManager(mcpServer, newMockGateway(), nil, slog.Default(), 0, mcpv1alpha1.InvalidToolPolicyFilterOut)
+	require.NoError(t, err)
+	return manager
 }
 
 func TestToolAnnotations(t *testing.T) {

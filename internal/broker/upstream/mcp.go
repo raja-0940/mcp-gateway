@@ -89,6 +89,7 @@ func (up *MCPServer) GetConfig() config.MCPServer {
 		Credential:          up.Credential,
 		CACert:              up.CACert,
 		TokenURLElicitation: up.TokenURLElicitation,
+		UserSpecificList:    up.UserSpecificList,
 		Category:            cat,
 		Hint:                up.Hint,
 		Tags:                tags,

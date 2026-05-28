@@ -401,14 +401,15 @@ func (r *MCPReconciler) buildMCPServerConfig(ctx context.Context, targetRoute *g
 	// cspell:ignore mcpsr
 	serverName := mcpServerName(mcpsr)
 	serverConfig := config.MCPServer{
-		Name:     serverName,
-		URL:      serverInfo.Endpoint,
-		Hostname: serverInfo.Hostname,
-		Prefix:   mcpsr.Spec.Prefix,
-		State:    string(mcpsr.Spec.State),
-		Category: append([]string(nil), mcpsr.Spec.Category...),
-		Hint:     mcpsr.Spec.Hint,
-		Tags:     append([]string(nil), mcpsr.Spec.Tags...),
+		Name:             serverName,
+		URL:              serverInfo.Endpoint,
+		Hostname:         serverInfo.Hostname,
+		Prefix:           mcpsr.Spec.Prefix,
+		State:            string(mcpsr.Spec.State),
+		Category:         append([]string(nil), mcpsr.Spec.Category...),
+		Hint:             mcpsr.Spec.Hint,
+		UserSpecificList: mcpsr.Spec.UserSpecificList == mcpv1alpha1.UserSpecificListEnabled,
+		Tags:             append([]string(nil), mcpsr.Spec.Tags...),
 	}
 
 	if mcpsr.Spec.TokenURLElicitation != nil {
