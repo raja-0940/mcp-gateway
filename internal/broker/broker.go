@@ -107,6 +107,9 @@ type mcpBrokerImpl struct {
 	// userSpecificFetchTimeout is the per-server timeout for user-specific tool fetches
 	userSpecificFetchTimeout time.Duration
 
+	// userSpecificServers is precomputed in OnConfigChange to avoid per-request iteration
+	userSpecificServers []userSpecificServer
+
 	// tagsToolsRegistered tracks whether list_tags/filter_tools_by_tags are currently registered
 	tagsToolsRegistered atomic.Bool
 }
@@ -322,6 +325,19 @@ func (m *mcpBrokerImpl) OnConfigChange(ctx context.Context, conf *config.MCPServ
 		}
 	}
 	m.syncTagsTools(ctx, servers)
+
+	// precompute userSpecificList servers for FetchUserSpecificTools
+	m.userSpecificServers = nil
+	for _, srv := range servers {
+		if srv.UserSpecificList {
+			m.userSpecificServers = append(m.userSpecificServers, userSpecificServer{
+				id:     srv.ID(),
+				name:   srv.Name,
+				url:    srv.URL,
+				prefix: srv.Prefix,
+			})
+		}
+	}
 
 	// register virtual servers
 	m.vsLock.Lock()

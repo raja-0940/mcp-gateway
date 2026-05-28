@@ -116,11 +116,10 @@ func TestFetchUserSpecificTools_NoGatewaySessionID(t *testing.T) {
 		UserSpecificList: true,
 	})
 
+	cfg := mockServer.configPtr()
 	cache, _ := session.NewCache()
 	broker := &mcpBrokerImpl{
-		mcpServers: map[config.UpstreamMCPID]upstream.ActiveMCPServer{
-			mockServer.configPtr().ID(): mockServer,
-		},
+		userSpecificServers:      []userSpecificServer{toUserSpecificServer(*cfg)},
 		logger:                   slog.Default(),
 		sessionCache:             cache,
 		userSpecificFetchTimeout: 5 * time.Second,
@@ -136,6 +135,10 @@ func TestFetchUserSpecificTools_NoGatewaySessionID(t *testing.T) {
 
 	// should return early, no tools added
 	assert.Len(t, result.Tools, 1)
+}
+
+func toUserSpecificServer(cfg config.MCPServer) userSpecificServer {
+	return userSpecificServer{id: cfg.ID(), name: cfg.Name, url: cfg.URL, prefix: cfg.Prefix}
 }
 
 // newTestMCPServer returns a test HTTP server that handles MCP initialize and
@@ -208,11 +211,10 @@ func TestFetchUserSpecificTools_FetchesAndMergesTools(t *testing.T) {
 		UserSpecificList: true,
 	})
 
+	cfg := mockServer.configPtr()
 	cache, _ := session.NewCache()
 	b := &mcpBrokerImpl{
-		mcpServers: map[config.UpstreamMCPID]upstream.ActiveMCPServer{
-			mockServer.configPtr().ID(): mockServer,
-		},
+		userSpecificServers:      []userSpecificServer{toUserSpecificServer(*cfg)},
 		logger:                   slog.Default(),
 		sessionCache:             cache,
 		userSpecificFetchTimeout: 10 * time.Second,
@@ -246,19 +248,17 @@ func TestFetchUserSpecificTools_GracefulDegradation(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	mockServer := newMockActiveMCPServer(config.MCPServer{
+	cfg := config.MCPServer{
 		Name:             "broken-server",
 		URL:              ts.URL,
 		Prefix:           "brk_",
 		State:            "Enabled",
 		UserSpecificList: true,
-	})
+	}
 
 	cache, _ := session.NewCache()
 	b := &mcpBrokerImpl{
-		mcpServers: map[config.UpstreamMCPID]upstream.ActiveMCPServer{
-			mockServer.configPtr().ID(): mockServer,
-		},
+		userSpecificServers:      []userSpecificServer{toUserSpecificServer(cfg)},
 		logger:                   slog.Default(),
 		sessionCache:             cache,
 		userSpecificFetchTimeout: 2 * time.Second,
@@ -314,19 +314,17 @@ func TestFetchUserSpecificTools_SessionCaching(t *testing.T) {
 	ts := newTestMCPServer(&initCount, "upstream-cached-session")
 	defer ts.Close()
 
-	mockServer := newMockActiveMCPServer(config.MCPServer{
+	cfg := config.MCPServer{
 		Name:             "caching-server",
 		URL:              ts.URL,
 		Prefix:           "cs_",
 		State:            "Enabled",
 		UserSpecificList: true,
-	})
+	}
 
 	cache, _ := session.NewCache()
 	b := &mcpBrokerImpl{
-		mcpServers: map[config.UpstreamMCPID]upstream.ActiveMCPServer{
-			mockServer.configPtr().ID(): mockServer,
-		},
+		userSpecificServers:      []userSpecificServer{toUserSpecificServer(cfg)},
 		logger:                   slog.Default(),
 		sessionCache:             cache,
 		userSpecificFetchTimeout: 10 * time.Second,

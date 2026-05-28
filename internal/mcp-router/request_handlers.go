@@ -9,8 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"net/http"
-
 	"github.com/Kuadrant/mcp-gateway/internal/config"
 	sharedheaders "github.com/Kuadrant/mcp-gateway/internal/headers"
 	internaljwt "github.com/Kuadrant/mcp-gateway/internal/jwt"
@@ -770,8 +768,6 @@ func (s *ExtProcServer) initializeMCPSeverSession(ctx context.Context, mcpReq *M
 			if err := clientHandle.Close(); err != nil {
 				s.Logger.DebugContext(cleanupCtx, "failed to close client connection", "err", err)
 			}
-			// terminate user-specific backend sessions that the broker cached
-			s.terminateUserSpecificSessions(cleanupCtx, mcpReq.GetSessionID())
 			if err := s.SessionCache.DeleteSessions(cleanupCtx, mcpReq.GetSessionID()); err != nil {
 				s.Logger.DebugContext(cleanupCtx, "failed to delete session", "session", mcpReq.GetSessionID(), "err", err)
 			}
@@ -943,56 +939,4 @@ func buildSSEToolError(requestID any, message string) string {
 		b.WriteString(strconv.Quote(message))
 		b.WriteString("}],\"isError\":true}}")
 	})
-}
-
-// terminateUserSpecificSessions sends HTTP DELETE to upstream user-specific
-// servers for any backend sessions cached under the given gateway session.
-// Standard server sessions are already handled by clientHandle.Close().
-func (s *ExtProcServer) terminateUserSpecificSessions(ctx context.Context, gatewaySessionID string) {
-	ctx, span := tracer().Start(ctx, "mcp-router.session-cleanup.user-specific",
-		trace.WithAttributes(componentAttr),
-	)
-	defer span.End()
-
-	sessions, err := s.SessionCache.GetSession(ctx, gatewaySessionID)
-	if err != nil {
-		span.SetStatus(codes.Error, "failed to get sessions")
-		span.RecordError(err)
-		s.Logger.ErrorContext(ctx, "failed to get sessions for cleanup", "error", err)
-		return
-	}
-	var terminated int
-	registered := s.Broker.RegisteredMCPServers()
-	for serverName, backendSessionID := range sessions {
-		if strings.HasPrefix(serverName, "token:") {
-			continue
-		}
-		for _, srv := range registered {
-			cfg := srv.Config()
-			if cfg.Name == serverName && cfg.UserSpecificList {
-				s.Logger.DebugContext(ctx, "terminating user-specific backend session", "server", serverName, "backendSession", backendSessionID)
-				if termErr := terminateMCPSession(ctx, cfg.URL, backendSessionID); termErr != nil {
-					s.Logger.ErrorContext(ctx, "failed to terminate user-specific session", "server", serverName, "error", termErr)
-				} else {
-					terminated++
-				}
-				break
-			}
-		}
-	}
-	span.SetAttributes(attribute.Int("mcp.user_specific.sessions_terminated", terminated))
-}
-
-func terminateMCPSession(ctx context.Context, serverURL, sessionID string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, serverURL, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Mcp-Session-Id", sessionID)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	return nil
 }

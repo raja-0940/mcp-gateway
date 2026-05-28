@@ -35,18 +35,7 @@ type userSpecificServer struct {
 // caller's session headers and merges them into the result before FilterTools runs.
 func (broker *mcpBrokerImpl) FetchUserSpecificTools(ctx context.Context, _ any, mcpReq *mcp.ListToolsRequest, result *mcp.ListToolsResult) {
 	broker.mcpLock.RLock()
-	var servers []userSpecificServer
-	for _, srv := range broker.mcpServers {
-		cfg := srv.Config()
-		if cfg.UserSpecificList {
-			servers = append(servers, userSpecificServer{
-				id:     cfg.ID(),
-				name:   cfg.Name,
-				url:    cfg.URL,
-				prefix: cfg.Prefix,
-			})
-		}
-	}
+	servers := broker.userSpecificServers
 	broker.mcpLock.RUnlock()
 
 	if len(servers) == 0 {
@@ -176,7 +165,7 @@ func (broker *mcpBrokerImpl) doFetchTools(ctx context.Context, srv userSpecificS
 	}
 	// don't call mcpClient.Close() — it sends HTTP DELETE which terminates
 	// the upstream session. the session is cleaned up when the gateway
-	// session expires via clients.TerminateSession.
+	// session expires via terminateUserSpecificSessions in the router.
 
 	if err := mcpClient.Start(fetchCtx); err != nil {
 		return nil, fmt.Errorf("start client: %w", err)
@@ -203,26 +192,19 @@ func (broker *mcpBrokerImpl) doFetchTools(ctx context.Context, srv userSpecificS
 		return nil, fmt.Errorf("list tools: %w", err)
 	}
 
-	validTools := toolsResult.Tools
-	switch broker.invalidToolPolicy {
-	case mcpv1alpha1.InvalidToolPolicyFilterOut:
-		valid, invalids := upstream.ValidateTools(toolsResult.Tools)
-		if len(invalids) > 0 {
+	validTools, invalids := upstream.ValidateTools(toolsResult.Tools)
+	if len(invalids) > 0 {
+		switch broker.invalidToolPolicy {
+		case mcpv1alpha1.InvalidToolPolicyFilterOut:
 			broker.logger.Error("invalid user-specific tools filtered", "server", srv.name, "count", len(invalids))
-		}
-		validTools = valid
-	case mcpv1alpha1.InvalidToolPolicyRejectServer:
-		_, invalids := upstream.ValidateTools(toolsResult.Tools)
-		if len(invalids) > 0 {
+		case mcpv1alpha1.InvalidToolPolicyRejectServer:
 			broker.logger.Error("user-specific server rejected due to invalid tools", "server", srv.name, "count", len(invalids))
 			return nil, fmt.Errorf("server %s rejected: %d invalid tools", srv.id, len(invalids))
 		}
 	}
 
 	for i := range validTools {
-		if srv.prefix != "" {
-			validTools[i].Name = srv.prefix + validTools[i].Name
-		}
+		validTools[i].Name = srv.prefix + validTools[i].Name
 		validTools[i].Meta = mcp.NewMetaFromMap(map[string]any{
 			"kuadrant/id": string(srv.id),
 		})
