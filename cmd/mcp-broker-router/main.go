@@ -321,7 +321,6 @@ func (a *app) run(ctx context.Context) {
 
 	if err := a.brokerServer.Shutdown(shutdownCtx); err != nil {
 		a.logger.Error("HTTP shutdown error", "error", err)
-		os.Exit(1)
 	}
 	if err := a.mcpServer.Shutdown(shutdownCtx); err != nil {
 		a.logger.Warn("MCP shutdown error, ignoring", "error", err)
