@@ -55,6 +55,13 @@ spec:
                   target_safe
                 }
 
+                # authenticated + unsafe target cookie → redirect to base URL
+                location := base {
+                  authenticated
+                  has_target
+                  not target_safe
+                }
+
                 # authenticated + no target cookie → redirect to base URL
                 location := base {
                   authenticated
