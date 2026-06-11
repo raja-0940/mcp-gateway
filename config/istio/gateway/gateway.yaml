@@ -73,3 +73,15 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
+    - name: mcps-hairpin
+      hostname: 'hairpin-tls.mcp-tls.local'
+      port: 8443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+        - kind: Secret
+          name: mcp-gateway-hairpin-cert
+      allowedRoutes:
+        namespaces:
+          from: All

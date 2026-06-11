@@ -3,18 +3,24 @@
 package e2e
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net"
+	"net/http"
 	"os"
 	"time"
 
 	mcpv1alpha1 "github.com/Kuadrant/mcp-gateway/api/v1alpha1"
+	mcpclient "github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -41,6 +47,17 @@ const (
 	githubMCPHost = "api.githubcopilot.com"
 	githubMCPPort = int32(443)
 	githubMCPPath = "/mcp"
+
+	// hairpin TLS test constants
+	hairpinListenerName   = "mcps-hairpin"
+	hairpinListenerPort   = 8443
+	hairpinNodePort       = 30443
+	hairpinHostPort       = 8009
+	hairpinPublicHost     = "hairpin-tls.mcp-tls.local"
+	hairpinGatewayCertSec = "mcp-gateway-hairpin-cert"
+	hairpinCACertSecret   = "hairpin-ca-bundle"
+	hairpinExtName        = "hairpin-tls-ext"
+	hairpinDeploymentName = "mcp-gateway" // operator uses this fixed name
 )
 
 var _ = Describe("Custom TLS Configuration", Ordered, func() {
@@ -329,6 +346,194 @@ var _ = Describe("HTTPS External Backends", func() {
 			g.Expect(verifyMCPServerRegistrationToolsPresent("realcert_", toolsList)).To(BeTrue(),
 				"expected to find realcert_ prefixed tools over HTTPS")
 		}, TestTimeoutLong, TestRetryInterval).Should(Succeed())
+	})
+})
+
+var _ = Describe("HTTPS Hairpin TLS", Ordered, func() {
+	// Tests the fix for #1130: when the gateway has an HTTPS listener, the
+	// broker-router's hairpin initialize request must set ServerName on the TLS
+	// config to verify the cert against the public hostname. The gateway already
+	// has an mcps-hairpin HTTPS listener (config/istio/gateway/gateway.yaml)
+	// with a cert issued by the private CA (config/test-servers/tls-server-cert-manager.yaml).
+
+	BeforeAll(func() {
+		By("Checking cert-manager is installed")
+		probe := &unstructured.UnstructuredList{}
+		probe.SetGroupVersionKind(schema.GroupVersionKind{
+			Group: "cert-manager.io", Version: "v1", Kind: "ClusterIssuerList",
+		})
+		if err := k8sClient.List(ctx, probe); err != nil {
+			Skip("cert-manager not installed - skipping HTTPS hairpin tests")
+		}
+
+		By("Checking the hairpin gateway cert secret exists")
+		secret := &corev1.Secret{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: hairpinGatewayCertSec, Namespace: GatewayNamespace,
+		}, secret); err != nil {
+			Skip("hairpin gateway cert not found - skipping (run 'make deploy-tls-test-server')")
+		}
+	})
+
+	It("[HTTPS] [Hairpin] tools/call succeeds through HTTPS gateway listener with private CA", func() {
+		By("Creating MCPGatewayExtension for the HTTPS listener")
+		hairpinExt := NewMCPGatewayExtensionSetup(k8sClient).
+			WithName(hairpinExtName).
+			InNamespace(SystemNamespace).
+			TargetingGateway(GatewayName, GatewayNamespace).
+			WithSectionName(hairpinListenerName).
+			WithPublicHost(hairpinPublicHost).
+			WithListenerPort(int32(hairpinListenerPort)).
+			Build()
+
+		hairpinExt.Clean(ctx).Register(ctx)
+		DeferCleanup(func() {
+			hairpinExt.TearDown(ctx)
+		})
+
+		By("Waiting for MCPGatewayExtension to become ready")
+		Eventually(func(g Gomega) {
+			g.Expect(VerifyMCPGatewayExtensionReady(ctx, k8sClient, hairpinExtName, SystemNamespace)).To(Succeed())
+		}, TestTimeoutLong, TestRetryInterval).Should(Succeed())
+
+		By("Waiting for broker-router deployment to be ready")
+		Eventually(func(g Gomega) {
+			deploy := &appsv1.Deployment{}
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: hairpinDeploymentName, Namespace: SystemNamespace,
+			}, deploy)).To(Succeed())
+			g.Expect(deploy.Status.ReadyReplicas).To(BeNumerically(">=", 1))
+		}, TestTimeoutLong, TestRetryInterval).Should(Succeed())
+
+		By("Extracting CA cert from cert-manager and creating secret in system namespace")
+		caSecret := &corev1.Secret{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{
+			Name: caKeypairSecret, Namespace: certManagerNS,
+		}, caSecret)).To(Succeed())
+		caCertPEM, ok := caSecret.Data["ca.crt"]
+		Expect(ok).To(BeTrue(), "private-ca-keypair should have ca.crt")
+
+		caBundle := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      hairpinCACertSecret,
+				Namespace: SystemNamespace,
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: map[string][]byte{
+				"ca.crt": caCertPEM,
+			},
+		}
+		_ = k8sClient.Delete(ctx, caBundle)
+		Expect(k8sClient.Create(ctx, caBundle)).To(Succeed())
+		DeferCleanup(func() {
+			_ = k8sClient.Delete(context.Background(), caBundle)
+		})
+
+		By("Patching broker-router deployment: mount CA cert volume and add --gateway-ca-cert flag")
+		combinedPatch := fmt.Sprintf(`[`+
+			`{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"gateway-ca","secret":{"secretName":"%s"}}},`+
+			`{"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"gateway-ca","mountPath":"/certs/gateway-ca.crt","subPath":"ca.crt","readOnly":true}},`+
+			`{"op":"add","path":"/spec/template/spec/containers/0/command/-","value":"--gateway-ca-cert=/certs/gateway-ca.crt"}`+
+			`]`, hairpinCACertSecret)
+		Expect(PatchDeploymentJSON(ctx, SystemNamespace, hairpinDeploymentName, combinedPatch)).To(Succeed())
+
+		DeferCleanup(func() {
+			cleanupCtx := context.Background()
+			_ = RemoveDeploymentCommandFlag(cleanupCtx, SystemNamespace, hairpinDeploymentName, "--gateway-ca-cert=/certs/gateway-ca.crt")
+			_ = RemoveDeploymentVolumeMount(cleanupCtx, SystemNamespace, hairpinDeploymentName, "gateway-ca")
+			_ = RemoveDeploymentVolume(cleanupCtx, SystemNamespace, hairpinDeploymentName, "gateway-ca")
+		})
+
+		Expect(WaitForDeploymentReady(ctx, SystemNamespace, hairpinDeploymentName)).To(Succeed())
+
+		By("Registering an MCP server on the HTTPS listener")
+		registration := NewTestResources("hairpin-tls", k8sClient).
+			ForInternalService("mcp-test-server1", 9090).
+			WithHostname(hairpinPublicHost).
+			WithPrefix("hairpin_").
+			WithSectionName(hairpinListenerName).
+			Build()
+		for _, obj := range registration.GetObjects() {
+			CleanupResource(ctx, k8sClient, obj)
+		}
+		registeredServer := registration.Register(ctx)
+		DeferCleanup(func() {
+			for _, obj := range registration.GetObjects() {
+				CleanupResource(context.Background(), k8sClient, obj)
+			}
+		})
+
+		By("Verifying MCPServerRegistration becomes ready")
+		Eventually(func(g Gomega) {
+			g.Expect(VerifyMCPServerRegistrationReady(ctx, k8sClient, registeredServer.Name, registeredServer.Namespace)).To(Succeed())
+		}, TestTimeoutConfigSync, TestRetryInterval).Should(Succeed())
+
+		By("Connecting to the gateway via HTTPS with the private CA cert")
+		pool := x509.NewCertPool()
+		Expect(pool.AppendCertsFromPEM(caCertPEM)).To(BeTrue())
+
+		httpClient := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					RootCAs:    pool,
+					MinVersion: tls.VersionTLS12,
+				},
+				// route hairpinPublicHost to localhost via custom dialer
+				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					host, _, _ := net.SplitHostPort(addr)
+					if host == hairpinPublicHost {
+						addr = fmt.Sprintf("localhost:%d", hairpinHostPort)
+					}
+					return (&net.Dialer{}).DialContext(ctx, network, addr)
+				},
+			},
+		}
+
+		gatewayHTTPSURL := "https://" + net.JoinHostPort(hairpinPublicHost, fmt.Sprintf("%d", hairpinHostPort)) + "/mcp"
+		var mcpClient *mcpclient.Client
+		Eventually(func(g Gomega) {
+			if mcpClient != nil {
+				_ = mcpClient.Close()
+				mcpClient = nil
+			}
+			var err error
+			mcpClient, err = mcpclient.NewStreamableHttpClient(gatewayHTTPSURL,
+				transport.WithHTTPHeaders(map[string]string{"e2e": "client"}),
+				transport.WithHTTPBasicClient(httpClient),
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(mcpClient.Start(ctx)).To(Succeed())
+			_, err = mcpClient.Initialize(ctx, mcpgo.InitializeRequest{
+				Params: mcpgo.InitializeParams{
+					ProtocolVersion: mcpgo.LATEST_PROTOCOL_VERSION,
+					Capabilities:    mcpgo.ClientCapabilities{},
+					ClientInfo:      mcpgo.Implementation{Name: "e2e-hairpin", Version: "0.0.1"},
+				},
+			})
+			g.Expect(err).NotTo(HaveOccurred())
+		}, TestTimeoutMedium, TestRetryInterval).Should(Succeed())
+		defer func() { _ = mcpClient.Close() }()
+
+		By("Verifying tools with hairpin_ prefix are discoverable")
+		Eventually(func(g Gomega) {
+			toolsList, err := mcpClient.ListTools(ctx, mcpgo.ListToolsRequest{})
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(toolsList).NotTo(BeNil())
+			g.Expect(verifyMCPServerRegistrationToolsPresent("hairpin_", toolsList)).To(BeTrue(),
+				"tools with prefix hairpin_ should exist")
+		}, TestTimeoutConfigSync, TestRetryInterval).Should(Succeed())
+
+		By("Calling a tool to trigger the hairpin init through the HTTPS listener")
+		toolName := "hairpin_greet"
+		res, err := mcpClient.CallTool(ctx, mcpgo.CallToolRequest{
+			Params: mcpgo.CallToolParams{
+				Name:      toolName,
+				Arguments: map[string]string{"name": "hairpin-tls-test"},
+			},
+		})
+		Expect(err).NotTo(HaveOccurred(), "tools/call should succeed — hairpin init through HTTPS must work")
+		Expect(res).NotTo(BeNil())
+		Expect(res.Content).NotTo(BeEmpty(), "tool call should return content")
 	})
 })
 
