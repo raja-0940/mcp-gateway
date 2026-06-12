@@ -835,7 +835,7 @@ var _ = Describe("MCP Gateway Registration Happy Path", func() {
 		// "greet" prompt, so registering it twice under the same prefix
 		// produces both tool and prompt name conflicts in one cycle
 		By("Creating first MCPServerRegistration with a specific prefix pointing to server1")
-		registration1 := NewMCPServerResources("conflict-test-1", "conflict-s1.mcp.local", sharedMCPTestServer1, 9090, k8sClient).
+		registration1 := NewMCPServerResources("conflict-test-1", "conflict-s1.mcp-gateway.local", sharedMCPTestServer1, 9090, k8sClient).
 			WithPrefix("conflict_").Build()
 		testResources = append(testResources, registration1.GetObjects()...)
 		server1 := registration1.Register(ctx)
@@ -846,7 +846,7 @@ var _ = Describe("MCP Gateway Registration Happy Path", func() {
 		}, TestTimeoutLong, TestRetryInterval).To(Succeed())
 
 		By("Creating second MCPServerRegistration with the SAME prefix pointing to server1 via a different hostname")
-		registration2 := NewMCPServerResources("conflict-test-2", "conflict-s2.mcp.local", sharedMCPTestServer1, 9090, k8sClient).
+		registration2 := NewMCPServerResources("conflict-test-2", "conflict-s2.mcp-gateway.local", sharedMCPTestServer1, 9090, k8sClient).
 			WithPrefix("conflict_").Build()
 		testResources = append(testResources, registration2.GetObjects()...)
 		server2 := registration2.Register(ctx)
