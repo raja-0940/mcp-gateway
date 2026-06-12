@@ -406,8 +406,15 @@ func (r *MCPReconciler) buildMCPServerConfig(ctx context.Context, targetRoute *g
 	serverName := mcpServerName(mcpsr)
 	// if a CA cert is configured, the upstream must be HTTPS
 	endpoint := serverInfo.Endpoint
-	if mcpsr.Spec.CACertSecretRef != nil && strings.HasPrefix(endpoint, "http://") {
-		endpoint = "https://" + strings.TrimPrefix(endpoint, "http://")
+	if mcpsr.Spec.CACertSecretRef != nil {
+		u, err := url.Parse(endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse endpoint URL %q: %w", endpoint, err)
+		}
+		if strings.EqualFold(u.Scheme, "http") {
+			u.Scheme = "https"
+			endpoint = u.String()
+		}
 	}
 
 	serverConfig := config.MCPServer{

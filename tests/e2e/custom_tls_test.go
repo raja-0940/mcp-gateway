@@ -88,7 +88,7 @@ var _ = Describe("Custom TLS Configuration", Ordered, func() {
 		testResources = []client.Object{}
 	})
 
-	FIt("[HTTPS] [Happy] broker connects to TLS upstream with custom CA certificate", func() {
+	It("[HTTPS] [Happy] broker connects to TLS upstream with custom CA certificate", func() {
 		By("Extracting CA cert from cert-manager secret")
 		caSecret := &corev1.Secret{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{

@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/Kuadrant/mcp-gateway/internal/config"
 	"github.com/stretchr/testify/require"
@@ -101,18 +100,16 @@ func TestInitialize(t *testing.T) {
 }
 
 func TestBuildHairpinHTTPClient(t *testing.T) {
-	t.Run("returns plain client with timeout for HTTP private host", func(t *testing.T) {
+	t.Run("returns plain client for HTTP private host", func(t *testing.T) {
 		c, err := BuildHairpinHTTPClient("http://gw.svc:8080", "mcp.example.com", "")
 		require.NoError(t, err)
 		require.NotNil(t, c)
-		require.Equal(t, 5*time.Second, c.Timeout)
 	})
 
-	t.Run("returns plain client with timeout for bare host without scheme", func(t *testing.T) {
+	t.Run("returns plain client for bare host without scheme", func(t *testing.T) {
 		c, err := BuildHairpinHTTPClient("gw.svc:8080", "mcp.example.com", "")
 		require.NoError(t, err)
 		require.NotNil(t, c)
-		require.Equal(t, 5*time.Second, c.Timeout)
 	})
 
 	t.Run("HTTPS sets ServerName and TLS minimum version", func(t *testing.T) {
@@ -124,6 +121,16 @@ func TestBuildHairpinHTTPClient(t *testing.T) {
 		require.True(t, ok)
 		require.Equal(t, "mcp.example.com", tr.TLSClientConfig.ServerName)
 		require.Equal(t, uint16(0x0303), tr.TLSClientConfig.MinVersion) // tls.VersionTLS12
+	})
+
+	t.Run("HTTPS strips port from publicHost for ServerName", func(t *testing.T) {
+		c, err := BuildHairpinHTTPClient("https://gw.svc:443", "mcp.example.com:8443", "")
+		require.NoError(t, err)
+		require.NotNil(t, c)
+
+		tr, ok := c.Transport.(*http.Transport)
+		require.True(t, ok)
+		require.Equal(t, "mcp.example.com", tr.TLSClientConfig.ServerName)
 	})
 
 	t.Run("errors on non-existent CA cert path", func(t *testing.T) {

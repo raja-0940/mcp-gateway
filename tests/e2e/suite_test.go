@@ -140,6 +140,10 @@ var _ = BeforeSuite(func() {
 		g.Expect(extList.Items).To(BeEmpty())
 	}, TestTimeoutMedium, TestRetryInterval).Should(Succeed())
 
+	By("adding HTTPS listener to the gateway")
+	Expect(AddGatewayHTTPSListener(ctx, GatewayNamespace, GatewayName,
+		GatewayListenerName, "*.mcp-gateway.local", "mcp-gateway-tls-cert", 8443)).To(Succeed())
+
 	By("setting up MCPGatewayExtension with ReferenceGrant")
 	defaultMCPGatewayExt = NewMCPGatewayExtensionSetup(k8sClient).
 		WithName(MCPExtensionName).
@@ -209,6 +213,19 @@ var _ = AfterSuite(func() {
 	_ = RemoveDeploymentCommandFlag(ctx, SystemNamespace, "mcp-gateway", "--gateway-ca-cert=/certs/gateway-ca.crt")
 	_ = RemoveDeploymentVolumeMount(ctx, SystemNamespace, "mcp-gateway", "gateway-ca")
 	_ = RemoveDeploymentVolume(ctx, SystemNamespace, "mcp-gateway", "gateway-ca")
+
+	By("removing HTTPS listener from gateway")
+	gw := &gatewayapiv1.Gateway{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Name: GatewayName, Namespace: GatewayNamespace}, gw); err == nil {
+		var listeners []gatewayapiv1.Listener
+		for _, l := range gw.Spec.Listeners {
+			if string(l.Name) != GatewayListenerName {
+				listeners = append(listeners, l)
+			}
+		}
+		gw.Spec.Listeners = listeners
+		_ = k8sClient.Update(ctx, gw)
+	}
 
 	if defaultMCPGatewayExt != nil {
 		defaultMCPGatewayExt.TearDown(ctx)

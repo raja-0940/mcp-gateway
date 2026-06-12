@@ -8,10 +8,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/Kuadrant/mcp-gateway/internal/config"
 	mcprouter "github.com/Kuadrant/mcp-gateway/internal/mcp-router"
@@ -19,8 +19,6 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
-
-const hairpinTimeout = 5 * time.Second
 
 // buildHairpinURL composes the hairpin URL the broker uses to send the internal
 // initialize request back through the gateway. gatewayHost may be either a
@@ -88,7 +86,7 @@ func Initialize(ctx context.Context, gatewayHost, initToken string, conf *config
 // connection goes to the internal address. For plain HTTP it returns http.DefaultClient.
 func BuildHairpinHTTPClient(privateHost, publicHost, caCertPath string) (*http.Client, error) {
 	if !strings.HasPrefix(strings.ToLower(privateHost), "https://") {
-		return &http.Client{Timeout: hairpinTimeout}, nil
+		return &http.Client{}, nil
 	}
 
 	pool, err := x509.SystemCertPool()
@@ -106,11 +104,17 @@ func BuildHairpinHTTPClient(privateHost, publicHost, caCertPath string) (*http.C
 		}
 	}
 
+	// TLS ServerName must be a bare hostname, never host:port
+	serverName := publicHost
+	if h, _, err := net.SplitHostPort(publicHost); err == nil {
+		serverName = h
+	}
+
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.TLSClientConfig = &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		RootCAs:    pool,
-		ServerName: publicHost,
+		ServerName: serverName,
 	}
-	return &http.Client{Transport: t, Timeout: hairpinTimeout}, nil
+	return &http.Client{Transport: t}, nil
 }

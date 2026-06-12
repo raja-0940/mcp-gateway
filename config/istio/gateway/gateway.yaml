@@ -73,15 +73,3 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
-    - name: mcp-tls
-      hostname: '*.mcp-gateway.local'
-      port: 8443
-      protocol: HTTPS
-      tls:
-        mode: Terminate
-        certificateRefs:
-        - kind: Secret
-          name: mcp-gateway-tls-cert
-      allowedRoutes:
-        namespaces:
-          from: All
