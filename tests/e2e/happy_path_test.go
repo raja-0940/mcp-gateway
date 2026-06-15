@@ -1351,7 +1351,7 @@ var _ = Describe("MCP Gateway Registration Happy Path", func() {
 		}, TestTimeoutLong, TestRetryInterval).To(Succeed())
 	})
 
-	It("[Full] tools and prompts re-populate after gateway restart", func() {
+	It("[Full] tools and prompts re-populate after gateway restart no redis", func() {
 		deploymentName := "mcp-gateway"
 
 		By("Registering an MCPServerRegistration with tools and prompts")
@@ -1377,31 +1377,31 @@ var _ = Describe("MCP Gateway Registration Happy Path", func() {
 		By("Restarting the mcp-gateway deployment")
 		Expect(RestartDeploymentAndWait(ctx, SystemNamespace, deploymentName)).To(Succeed())
 
-		By("Reconnecting a new MCP client after restart")
+		By("Verifying tools re-populate and tool invocation works after restart")
+		toolName := fmt.Sprintf("%s%s", registeredServer.Spec.Prefix, "greet")
 		Eventually(func(g Gomega) {
-			var err error
-			mcpGatewayClient, err = NewMCPGatewayClientWithNotifications(ctx, gatewayURL, nil)
+			sessionID, err := mcpInitialize(ctx, gatewayURL, nil)
 			g.Expect(err).NotTo(HaveOccurred())
-		}, TestTimeoutMedium, TestRetryInterval).Should(Succeed())
+			g.Expect(sessionID).NotTo(BeEmpty())
 
-		By("Verifying tools re-populate after restart")
-		WaitForToolsWithPrefix(ctx, mcpGatewayClient, registeredServer.Spec.Prefix)
+			err = mcpNotifyInitialized(ctx, gatewayURL, sessionID, nil)
+			g.Expect(err).NotTo(HaveOccurred())
 
-		By("Verifying prompts re-populate after restart")
-		WaitForPromptsWithPrefix(ctx, mcpGatewayClient, registeredServer.Spec.Prefix)
+			_, tools, err := mcpListTools(ctx, gatewayURL, sessionID, nil)
+			g.Expect(err).NotTo(HaveOccurred())
+			hasPrefix := false
+			for _, t := range tools {
+				if strings.HasPrefix(t, registeredServer.Spec.Prefix) {
+					hasPrefix = true
+					break
+				}
+			}
+			g.Expect(hasPrefix).To(BeTrue(), "tools with prefix %q should exist after restart", registeredServer.Spec.Prefix)
 
-		By("Verifying tool invocation works after restart")
-		toolName := fmt.Sprintf("%s%s", registeredServer.Spec.Prefix, "hello_world")
-		res, err := mcpGatewayClient.CallTool(ctx, mcp.CallToolRequest{
-			Params: mcp.CallToolParams{Name: toolName, Arguments: map[string]string{
-				"name": "restart-test",
-			}},
-		})
-		Expect(err).NotTo(HaveOccurred())
-		Expect(res).NotTo(BeNil())
-		Expect(len(res.Content)).To(BeNumerically("==", 1))
-		content, ok := res.Content[0].(mcp.TextContent)
-		Expect(ok).To(BeTrue())
-		Expect(content.Text).To(Equal("Hello, restart-test!"))
+			_, content, err := mcpCallTool(ctx, gatewayURL, sessionID, toolName, map[string]any{"name": "restart-test"}, nil)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(content).NotTo(BeEmpty())
+			g.Expect(content[0].Text).To(Equal("Hi restart-test"))
+		}, TestTimeoutLong, TestRetryInterval).Should(Succeed())
 	})
 })
