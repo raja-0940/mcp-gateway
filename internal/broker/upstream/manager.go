@@ -546,21 +546,22 @@ func (man *MCPManager) findToolConflicts(mcpTools []server.ServerTool) error {
 	var conflictingToolNames []string
 	for _, tool := range mcpTools {
 		for existingToolName, existingToolInfo := range gatewayServerTools {
+			if existingToolName == "discover_tools" || existingToolName == "select_tools" {
+				continue
+			}
 			existingTool := existingToolInfo.Tool
 			if existingTool.Meta == nil || existingTool.Meta.AdditionalFields == nil {
-				man.logger.Error("unable to check conflict, tool meta is nil", "upstream mcp server", man.mcp.ID(), "tool", existingToolName)
+				man.logger.Debug("skipping conflict check, tool meta is nil", "upstream mcp server", man.mcp.ID(), "tool", existingToolName)
 				continue
 			}
 			existingToolID, ok := existingTool.Meta.AdditionalFields[gatewayServerID]
 			if !ok {
-				// should never happen as we are adding every time
-				man.logger.Error("unable to check conflict, tool id is missing", "upstream mcp server", man.mcp.ID())
+				man.logger.Debug("skipping conflict check, tool id is missing", "upstream mcp server", man.mcp.ID(), "tool", existingToolName)
 				continue
 			}
 			toolID, is := existingToolID.(string)
 			if !is {
-				// also should never happen
-				man.logger.Error("unable to check conflict, tool id is not a string", "upstream mcp server", man.mcp.ID(), "type", reflect.TypeOf(existingToolID))
+				man.logger.Debug("skipping conflict check, tool id is not a string", "upstream mcp server", man.mcp.ID(), "type", reflect.TypeOf(existingToolID))
 				continue
 			}
 
@@ -781,17 +782,17 @@ func (man *MCPManager) findPromptConflicts(mcpPrompts []server.ServerPrompt) err
 		for existingPromptName, existingPromptInfo := range gatewayServerPrompts {
 			existingPrompt := existingPromptInfo.Prompt
 			if existingPrompt.Meta == nil || existingPrompt.Meta.AdditionalFields == nil {
-				man.logger.Error("unable to check conflict, prompt meta is nil", "upstream mcp server", man.mcp.ID(), "prompt", existingPromptName)
+				man.logger.Debug("skipping conflict check, prompt meta is nil", "upstream mcp server", man.mcp.ID(), "prompt", existingPromptName)
 				continue
 			}
 			existingPromptID, ok := existingPrompt.Meta.AdditionalFields[gatewayServerID]
 			if !ok {
-				man.logger.Error("unable to check conflict, prompt id is missing", "upstream mcp server", man.mcp.ID())
+				man.logger.Debug("skipping conflict check, prompt id is missing", "upstream mcp server", man.mcp.ID(), "prompt", existingPromptName)
 				continue
 			}
 			promptID, is := existingPromptID.(string)
 			if !is {
-				man.logger.Error("unable to check conflict, prompt id is not a string", "upstream mcp server", man.mcp.ID(), "type", reflect.TypeOf(existingPromptID))
+				man.logger.Debug("skipping conflict check, prompt id is not a string", "upstream mcp server", man.mcp.ID(), "type", reflect.TypeOf(existingPromptID))
 				continue
 			}
 			if existingPromptName == prompt.Prompt.Name && promptID != string(man.mcp.ID()) {

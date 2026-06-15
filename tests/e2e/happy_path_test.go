@@ -1350,4 +1350,58 @@ var _ = Describe("MCP Gateway Registration Happy Path", func() {
 			g.Expect(VerifyMCPServerRegistrationReady(ctx, k8sClient, registeredServer.Name, registeredServer.Namespace)).To(BeNil())
 		}, TestTimeoutLong, TestRetryInterval).To(Succeed())
 	})
+
+	It("[Full] tools and prompts re-populate after gateway restart", func() {
+		deploymentName := "mcp-gateway"
+
+		By("Registering an MCPServerRegistration with tools and prompts")
+		registration := NewMCPServerResourcesWithDefaults("restart-test", k8sClient).
+			WithBackendTarget(sharedMCPTestServer1, 9090).WithPrefix("restart_").Build()
+		testResources = append(testResources, registration.GetObjects()...)
+		registeredServer := registration.Register(ctx)
+
+		By("Waiting for the server to become ready")
+		Eventually(func(g Gomega) {
+			g.Expect(VerifyMCPServerRegistrationReady(ctx, k8sClient, registeredServer.Name, registeredServer.Namespace)).To(BeNil())
+		}, TestTimeoutLong, TestRetryInterval).To(Succeed())
+
+		By("Verifying tools are present before restart")
+		WaitForToolsWithPrefix(ctx, mcpGatewayClient, registeredServer.Spec.Prefix)
+
+		By("Verifying prompts are present before restart")
+		WaitForPromptsWithPrefix(ctx, mcpGatewayClient, registeredServer.Spec.Prefix)
+
+		By("Closing the MCP client before restart")
+		Expect(mcpGatewayClient.Close()).To(Succeed())
+
+		By("Restarting the mcp-gateway deployment")
+		Expect(RestartDeploymentAndWait(ctx, SystemNamespace, deploymentName)).To(Succeed())
+
+		By("Reconnecting a new MCP client after restart")
+		Eventually(func(g Gomega) {
+			var err error
+			mcpGatewayClient, err = NewMCPGatewayClientWithNotifications(ctx, gatewayURL, nil)
+			g.Expect(err).NotTo(HaveOccurred())
+		}, TestTimeoutMedium, TestRetryInterval).Should(Succeed())
+
+		By("Verifying tools re-populate after restart")
+		WaitForToolsWithPrefix(ctx, mcpGatewayClient, registeredServer.Spec.Prefix)
+
+		By("Verifying prompts re-populate after restart")
+		WaitForPromptsWithPrefix(ctx, mcpGatewayClient, registeredServer.Spec.Prefix)
+
+		By("Verifying tool invocation works after restart")
+		toolName := fmt.Sprintf("%s%s", registeredServer.Spec.Prefix, "hello_world")
+		res, err := mcpGatewayClient.CallTool(ctx, mcp.CallToolRequest{
+			Params: mcp.CallToolParams{Name: toolName, Arguments: map[string]string{
+				"name": "restart-test",
+			}},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res).NotTo(BeNil())
+		Expect(len(res.Content)).To(BeNumerically("==", 1))
+		content, ok := res.Content[0].(mcp.TextContent)
+		Expect(ok).To(BeTrue())
+		Expect(content.Text).To(Equal("Hello, restart-test!"))
+	})
 })
