@@ -61,6 +61,8 @@ is centered around milestones:
 2. When issues have a milestone: they are considered `triage/accepted`, and
    need a priority. The priority will default to `priority/normal`.
 
+Do not begin implementation work on an issue until it has been assigned to a milestone. An issue without a milestone has not been accepted or prioritised — starting work on it risks the effort being rejected or superseded. Wait for a maintainer to triage the issue before opening a PR against it.
+
 ### Code of conduct
 
 Participation in the Kuadrant community is governed by the [Kuadrant Community Code of Conduct](https://github.com/Kuadrant/governance/blob/main/CODE_OF_CONDUCT.md).
