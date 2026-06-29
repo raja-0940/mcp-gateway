@@ -94,6 +94,7 @@ func Initialize(ctx context.Context, gatewayHost string, conf *config.MCPServer,
 
 	url := buildHairpinURL(gatewayHost, mcpPath)
 	hairpinHTTPClient := hairpinClientPool.Get(conf.Hostname)
+	passThroughHeaders["x-client-id"] = "lazyinit"
 
 	httpClient, err := client.NewStreamableHttpClient(url,
 		transport.WithHTTPHeaders(passThroughHeaders),

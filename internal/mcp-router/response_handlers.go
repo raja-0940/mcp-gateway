@@ -17,9 +17,7 @@ func (s *ExtProcServer) HandleResponseHeaders(ctx context.Context, responseHeade
 	s.Logger.DebugContext(ctx, "[EXT-PROC] HandleResponseHeaders response headers for session mapping...", "responseHeaders", responseHeaders)
 
 	s.Logger.DebugContext(ctx, "[EXT-PROC] HandleResponseHeaders ", "mcp-session-id", getSingleValueHeader(responseHeaders.Headers, sessionHeader))
-	//"gateway session id"
 	gatewaySessionID := getSingleValueHeader(requestHeaders.Headers, sessionHeader)
-	// we always want to respond with the original mcp-session-id to the client
 	if gatewaySessionID != "" {
 		responseHeaderBuilder.WithMCPSession(gatewaySessionID)
 	}

@@ -14,6 +14,18 @@ MCP Gateway router component as ext_proc intercept all requests hitting the /mcp
 ![](./images/mcp-gateway-routing.jpg)
 
 
+### ext_proc Processing Mode
+
+The router uses `BUFFERED` request body mode. Envoy buffers the entire request body before forwarding it to the ext_proc filter. This is required because the router mutates headers (`:authority`) and clears the route cache in the body processing phase to re-route `tools/call` requests to backend MCP servers.
+
+From the [Envoy ext_proc proto documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/service/ext_proc/v3/external_processor.proto):
+
+> "When responding to an HttpBody request, header mutations will only take effect if the current processing mode for the body is BUFFERED."
+
+In `STREAMED` mode, header mutations and `ClearRouteCache` in the body phase are silently ignored. This causes intermittent routing failures where requests intended for backend MCP servers are handled by the broker instead.
+
+This limits request body size to Envoy's `per_connection_buffer_limit_bytes` (default 1MB). MCP JSON-RPC requests are small, so this is not a practical constraint.
+
 ### The Router
 
 The router component is configured to know about the different backend MCP Servers that have been registered. This MCPServer configuration is managed by the MCP Gateway Controller component. The router should also be configured with the public listener hostname via `required` flag `--mcp-gateway-public-host`. The router intercepts all requests to the gateway MCP listener before routing has happened and based on its configuration decides whether the request should be processed by the MCP Broker or configure the routing to ensure the request is sent to the correct MCP Server. The router only re-routes `tools/calls` but validates all calls hitting the MCP gateway listener to ensure clients cannot explicitly bypass the broker (note they can never bypass the router).

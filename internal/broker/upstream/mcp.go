@@ -47,6 +47,7 @@ func NewUpstreamMCP(config *config.MCPServer) *MCPServer {
 	up.headers = map[string]string{
 		"user-agent":        "mcp-broker",
 		"gateway-server-id": string(up.ID()),
+		"x-client-id":       "broker",
 	}
 	if up.Credential != "" {
 		up.headers["Authorization"] = up.Credential
