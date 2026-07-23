@@ -12,7 +12,7 @@ ifeq ($(ARCH),ppc64le)
 endif
 
 LOG_LEVEL ?= -4
-REDIS_WAIT_TIMEOUT ?= 900s
+REDIS_WAIT_TIMEOUT ?= 60s
 
 # Container engine
 CONTAINER_ENGINE ?= docker
