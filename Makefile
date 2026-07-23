@@ -17,6 +17,9 @@ ifeq (podman,$(CONTAINER_ENGINE))
 	CONTAINER_ENGINE_EXTRA_FLAGS ?= --load
 endif
 
+# Use this flag to override when doing local dev builds.
+LOCAL_ARCH ?= linux/amd64,linux/arm64
+
 WAIT_TIME ?=120s
 BROKER_ROUTER_NAME ?=mcp-gateway
 
@@ -559,7 +562,7 @@ reload: build docker-build kind ## Build, load to Kind, and restart both control
 
 # Build multi-platform image
 docker-buildx: ## Build multi-platform container image
-	$(CONTAINER_ENGINE) buildx build --platform linux/amd64,linux/arm64,linux/ppc64le $(CONTAINER_ENGINE_EXTRA_FLAGS) -t mcp-gateway:local .
+	$(CONTAINER_ENGINE) buildx build --platform $(LOCAL_ARCH) $(CONTAINER_ENGINE_EXTRA_FLAGS) -t mcp-gateway:local .
 
 # Download dependencies
 deps:
