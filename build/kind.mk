@@ -9,37 +9,6 @@ CONTAINER_ENGINE ?= podman
 # bin/kind the load targets use.
 KIND_CLUSTER_IMAGE ?= $(KIND_NODE_IMAGE)
 
-.PHONY: kind-node-dns
-kind-node-dns: ## Configure DNS inside Kind node. Requires KIND_NODE_DNS=<dns-ip>
-	@if [ -z "$(KIND_NODE_DNS)" ]; then \
-		echo "[WARN] KIND_NODE_DNS is not set. Skipping Kind node DNS configuration."; \
-		echo "       To enable: make ... KIND_NODE_DNS=<dns-ip>"; \
-		exit 0; \
-	fi
-	@if $(CONTAINER_ENGINE) ps --format '{{.Names}}' | grep -q "^$(KIND_CLUSTER_NAME)-control-plane$$"; then \
-        echo "Configuring DNS inside Kind node $(KIND_CLUSTER_NAME)-control-plane using nameserver $(KIND_NODE_DNS)..."; \
-        $(CONTAINER_ENGINE) exec $(KIND_CLUSTER_NAME)-control-plane sh -c 'printf "nameserver $(KIND_NODE_DNS)\noptions timeout:2 attempts:3 single-request-reopen\n" > /etc/resolv.conf'; \
-        $(CONTAINER_ENGINE) exec $(KIND_CLUSTER_NAME)-control-plane cat /etc/resolv.conf; \
-    else \
-        echo "[WARN] Kind node $(KIND_CLUSTER_NAME)-control-plane not found. Skipping DNS configuration."; \
-    fi
-	
-.PHONY: kind-node-dns-check
-kind-node-dns-check: ## Validate DNS lookup from inside Kind node
-	@if [ -z "$(KIND_NODE_DNS)" ]; then \
-        echo "[WARN] KIND_NODE_DNS is not set. Skipping DNS check."; \
-        exit 0; \
-    fi
-	@if $(CONTAINER_ENGINE) ps --format '{{.Names}}' | grep -q "^$(KIND_CLUSTER_NAME)-control-plane$$"; then \
-        echo "Checking DNS from Kind node $(KIND_CLUSTER_NAME)-control-plane..."; \
-        $(CONTAINER_ENGINE) exec $(KIND_CLUSTER_NAME)-control-plane getent hosts quay.io || (echo "[ERROR] quay.io DNS lookup failed"; exit 1); \
-        $(CONTAINER_ENGINE) exec $(KIND_CLUSTER_NAME)-control-plane getent hosts mirror.gcr.io || (echo "[ERROR] mirror.gcr.io DNS lookup failed"; exit 1); \
-        $(CONTAINER_ENGINE) exec $(KIND_CLUSTER_NAME)-control-plane getent hosts docker.io || (echo "[ERROR] docker.io DNS lookup failed"; exit 1); \
-        echo "[OK] Kind node DNS is working."; \
-    else \
-        echo "[WARN] Kind node $(KIND_CLUSTER_NAME)-control-plane not found. Skipping DNS check."; \
-    fi
-
 ISTIO_CUSTOM_HUB ?= quay.io/raja0940/istio-release
 ISTIO_CUSTOM_TAG ?= 1.26.3-ppc64le
 
@@ -118,8 +87,6 @@ kind-create-cluster: kind kind-node-image ## Create the "mcp-gateway" kind clust
 			-e 's/hostPort: 8002/hostPort: $(KIND_HOST_PORT_KEYCLOAK)/' | \
 		$(KIND) create cluster --name $(KIND_CLUSTER_NAME) --image "$$NODE_IMAGE" --config -; \
 	fi
-	@"$(MAKE)" -s -f build/kind.mk kind-node-dns
-	@"$(MAKE)" -s -f build/kind.mk kind-node-dns-check
 	@"$(MAKE)" -s -f build/kind.mk kind-load-custom-istio-images
 
 .PHONY: kind-delete-cluster
