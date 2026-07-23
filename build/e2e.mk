@@ -2,7 +2,7 @@
 
 GINKGO = $(shell pwd)/bin/ginkgo
 GINKGO_VERSION = v2.27.2
-E2E_TIMEOUT ?=60m
+E2E_TIMEOUT ?=30m
 # Tier 2 (slow/heavy) suites are excluded from the PR gate; they run in the full/nightly suite
 E2E_GINKGO_SKIP_TIER2 = --skip="\[Full\]|\[multi-gateway\]"
 # Local quick run: happy-path specs only (matches [Happy] and combined [Happy,...] tags)
