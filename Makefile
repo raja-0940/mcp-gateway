@@ -7,12 +7,9 @@ endif
 ifeq ($(ARCH),aarch64)
     ARCH = arm64
 endif
-ifeq ($(ARCH),ppc64le)
-    ARCH = ppc64le
-endif
 
 LOG_LEVEL ?= -4
-REDIS_WAIT_TIMEOUT ?= 900s
+REDIS_WAIT_TIMEOUT ?= 60s
 
 # Container engine
 CONTAINER_ENGINE ?= docker
@@ -20,7 +17,10 @@ ifeq (podman,$(CONTAINER_ENGINE))
 	CONTAINER_ENGINE_EXTRA_FLAGS ?= --load
 endif
 
-WAIT_TIME ?=150s
+# Use this flag to override when doing local dev builds.
+LOCAL_ARCH ?= linux/amd64,linux/arm64
+
+WAIT_TIME ?=120s
 BROKER_ROUTER_NAME ?=mcp-gateway
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -86,8 +86,6 @@ MCP_GATEWAY_NAME ?= mcp-gateway
 E2E_DOMAIN ?= 127-0-0-1.sslip.io
 GATEWAY_CLASS_NAME ?= istio
 E2E_PLATFORM ?= kind
-GATEWAY_TLS_SECRET ?= mcp-gateway-tls-cert
-GATEWAY_TLS_LISTENER_HOSTNAME ?= *.mcp-gateway.local
 
 .PHONY: help
 help: ## Display this help
@@ -296,8 +294,8 @@ load-image: kind ## Load the mcp-gateway image into the kind cluster
 
 .PHONY: build-image
 build-image: kind ## Build the mcp-gateway image
-	$(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --network=host --build-arg LDFLAGS="$(LDFLAGS)" -t $(GATEWAY_IMG) .
-	$(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --network=host --file Dockerfile.controller -t $(IMAGE_TAG_BASE):$(IMAGE_TAG) .
+	$(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --build-arg LDFLAGS="$(LDFLAGS)" -t $(GATEWAY_IMG) .
+	$(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --file Dockerfile.controller -t $(IMAGE_TAG_BASE):$(IMAGE_TAG) .
 
 # Deploy example MCPServerRegistration
 deploy-example: install-crd ## Deploy example MCPServerRegistration resource
@@ -333,16 +331,16 @@ build-everything-server: ## Build everything server Docker image
 # Build test server Docker images
 build-test-servers: ## Build test server Docker images locally
 	@echo "Building test server images..."
-	cd tests/servers/server1 && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --network=host -t ghcr.io/kuadrant/mcp-gateway/test-server1:latest .
-	$(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -f tests/servers/server2/Dockerfile --network=host -t ghcr.io/kuadrant/mcp-gateway/test-server2:latest .
-	cd tests/servers/server3 && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --network=host -t ghcr.io/kuadrant/mcp-gateway/test-server3:latest .
-	cd tests/servers/api-key-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --network=host -t ghcr.io/kuadrant/mcp-gateway/test-api-key-server:latest .
-	cd tests/servers/broken-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --network=host -t ghcr.io/kuadrant/mcp-gateway/test-broken-server:latest .
-	cd tests/servers/custom-path-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --network=host -t ghcr.io/kuadrant/mcp-gateway/test-custom-path-server:latest .
-	cd tests/servers/oidc-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --network=host -t ghcr.io/kuadrant/mcp-gateway/test-oidc-server:latest .
-	cd tests/servers/everything-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --network=host -t ghcr.io/kuadrant/mcp-gateway/test-everything-server:latest .
-	cd tests/servers/custom-response-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --network=host -t ghcr.io/kuadrant/mcp-gateway/test-custom-response-server:latest .
-	$(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -f tests/servers/user-specific-server/Dockerfile --network=host -t ghcr.io/kuadrant/mcp-gateway/test-user-specific-server:latest .
+	cd tests/servers/server1 && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -t ghcr.io/kuadrant/mcp-gateway/test-server1:latest .
+	$(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -f tests/servers/server2/Dockerfile -t ghcr.io/kuadrant/mcp-gateway/test-server2:latest .
+	cd tests/servers/server3 && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -t ghcr.io/kuadrant/mcp-gateway/test-server3:latest .
+	cd tests/servers/api-key-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -t ghcr.io/kuadrant/mcp-gateway/test-api-key-server:latest .
+	cd tests/servers/broken-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -t ghcr.io/kuadrant/mcp-gateway/test-broken-server:latest .
+	cd tests/servers/custom-path-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -t ghcr.io/kuadrant/mcp-gateway/test-custom-path-server:latest .
+	cd tests/servers/oidc-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -t ghcr.io/kuadrant/mcp-gateway/test-oidc-server:latest .
+	cd tests/servers/everything-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -t ghcr.io/kuadrant/mcp-gateway/test-everything-server:latest .
+	cd tests/servers/custom-response-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -t ghcr.io/kuadrant/mcp-gateway/test-custom-response-server:latest .
+	$(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -f tests/servers/user-specific-server/Dockerfile -t ghcr.io/kuadrant/mcp-gateway/test-user-specific-server:latest .
 
 # Build conformance server Docker image
 .PHONY: build-conformance-server
@@ -411,7 +409,7 @@ kind-load-conformance-server: kind build-conformance-server ## Load conformance 
 .PHONY: build-tls-server
 build-tls-server: ## Build TLS test server Docker image locally
 	@echo "Building TLS test server image..."
-	cd tests/servers/tls-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) --network=host -t ghcr.io/kuadrant/mcp-gateway/test-tls-server:latest .
+	cd tests/servers/tls-server && $(CONTAINER_ENGINE) build $(CONTAINER_ENGINE_EXTRA_FLAGS) -t ghcr.io/kuadrant/mcp-gateway/test-tls-server:latest .
 
 # Load TLS test server image into Kind cluster
 .PHONY: kind-load-tls-server
@@ -494,10 +492,9 @@ deploy-conformance-server: kind-load-conformance-server ## Deploy conformance MC
 .PHONY: generate-e2e-config
 generate-e2e-config: ## Generate e2e gateway configs from templates (E2E_DOMAIN=..., GATEWAY_CLASS_NAME=..., E2E_PLATFORM=kind|openshift)
 	@echo "Generating e2e config with E2E_DOMAIN=$(E2E_DOMAIN), GATEWAY_CLASS_NAME=$(GATEWAY_CLASS_NAME), E2E_PLATFORM=$(E2E_PLATFORM)"
-	@export E2E_DOMAIN=$(E2E_DOMAIN) GATEWAY_CLASS_NAME=$(GATEWAY_CLASS_NAME) GATEWAY_TLS_SECRET=$(GATEWAY_TLS_SECRET) GATEWAY_TLS_LISTENER_HOSTNAME=$(GATEWAY_TLS_LISTENER_HOSTNAME) && \
+	@export E2E_DOMAIN=$(E2E_DOMAIN) GATEWAY_CLASS_NAME=$(GATEWAY_CLASS_NAME) && \
 	  envsubst < config/e2e/gateway-1.yaml.template > config/e2e/gateway-1.yaml && \
 	  envsubst < config/e2e/gateway-2.yaml.template > config/e2e/gateway-2.yaml && \
-	  envsubst < config/e2e/gateway-elicitation.yaml.template > config/e2e/gateway-elicitation.yaml && \
 	  envsubst < config/e2e/gateway-shared.yaml.template > config/e2e/gateway-shared.yaml
 	@cp config/e2e/kustomization-$(E2E_PLATFORM).yaml config/e2e/kustomization.yaml
 	@echo "E2E config generated successfully"
@@ -511,11 +508,9 @@ deploy-e2e-gateways: generate-e2e-config ## Deploy two gateways for e2e multi-ga
 	@kubectl wait --for=condition=Programmed gateway/e2e-1 -n gateway-system --timeout=$(WAIT_TIME)
 	@echo "Waiting for e2e-2 to be programmed..."
 	@kubectl wait --for=condition=Programmed gateway/e2e-2 -n gateway-system --timeout=$(WAIT_TIME)
-	@echo "Waiting for e2e-elicitation to be programmed..."
-	@kubectl wait --for=condition=Programmed gateway/e2e-elicitation -n gateway-system --timeout=$(WAIT_TIME)
 	@echo "Waiting for shared gateway to be programmed..."
 	@kubectl wait --for=condition=Programmed gateway/shared-gateway -n gateway-system --timeout=$(WAIT_TIME)
-	@echo "E2E gateways ready: e2e-1, e2e-2, e2e-elicitation, and shared-gateway"
+	@echo "E2E gateways ready: e2e-1, e2e-2, and shared-gateway"
 
 # Deploy e2e gateways for OpenShift
 .PHONY: deploy-e2e-gateways-openshift
@@ -567,7 +562,7 @@ reload: build docker-build kind ## Build, load to Kind, and restart both control
 
 # Build multi-platform image
 docker-buildx: ## Build multi-platform container image
-	$(CONTAINER_ENGINE) buildx build --platform linux/amd64,linux/arm64,linux/ppc64le $(CONTAINER_ENGINE_EXTRA_FLAGS) -t mcp-gateway:local .
+	$(CONTAINER_ENGINE) buildx build --platform $(LOCAL_ARCH) $(CONTAINER_ENGINE_EXTRA_FLAGS) -t mcp-gateway:local .
 
 # Download dependencies
 deps:

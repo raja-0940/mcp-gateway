@@ -9,37 +9,6 @@ CONTAINER_ENGINE ?= podman
 # bin/kind the load targets use.
 KIND_CLUSTER_IMAGE ?= $(KIND_NODE_IMAGE)
 
-.PHONY: kind-node-dns
-kind-node-dns: ## Configure DNS inside Kind node. Requires KIND_NODE_DNS=<dns-ip>
-	@if [ -z "$(KIND_NODE_DNS)" ]; then \
-		echo "[WARN] KIND_NODE_DNS is not set. Skipping Kind node DNS configuration."; \
-		echo "       To enable: make ... KIND_NODE_DNS=<dns-ip>"; \
-		exit 0; \
-	fi
-	@if $(CONTAINER_ENGINE) ps --format '{{.Names}}' | grep -q "^$(KIND_CLUSTER_NAME)-control-plane$$"; then \
-        echo "Configuring DNS inside Kind node $(KIND_CLUSTER_NAME)-control-plane using nameserver $(KIND_NODE_DNS)..."; \
-        $(CONTAINER_ENGINE) exec $(KIND_CLUSTER_NAME)-control-plane sh -c 'printf "nameserver $(KIND_NODE_DNS)\noptions timeout:2 attempts:3 single-request-reopen\n" > /etc/resolv.conf'; \
-        $(CONTAINER_ENGINE) exec $(KIND_CLUSTER_NAME)-control-plane cat /etc/resolv.conf; \
-    else \
-        echo "[WARN] Kind node $(KIND_CLUSTER_NAME)-control-plane not found. Skipping DNS configuration."; \
-    fi
-	
-.PHONY: kind-node-dns-check
-kind-node-dns-check: ## Validate DNS lookup from inside Kind node
-	@if [ -z "$(KIND_NODE_DNS)" ]; then \
-        echo "[WARN] KIND_NODE_DNS is not set. Skipping DNS check."; \
-        exit 0; \
-    fi
-	@if $(CONTAINER_ENGINE) ps --format '{{.Names}}' | grep -q "^$(KIND_CLUSTER_NAME)-control-plane$$"; then \
-        echo "Checking DNS from Kind node $(KIND_CLUSTER_NAME)-control-plane..."; \
-        $(CONTAINER_ENGINE) exec $(KIND_CLUSTER_NAME)-control-plane getent hosts quay.io || (echo "[ERROR] quay.io DNS lookup failed"; exit 1); \
-        $(CONTAINER_ENGINE) exec $(KIND_CLUSTER_NAME)-control-plane getent hosts mirror.gcr.io || (echo "[ERROR] mirror.gcr.io DNS lookup failed"; exit 1); \
-        $(CONTAINER_ENGINE) exec $(KIND_CLUSTER_NAME)-control-plane getent hosts docker.io || (echo "[ERROR] docker.io DNS lookup failed"; exit 1); \
-        echo "[OK] Kind node DNS is working."; \
-    else \
-        echo "[WARN] Kind node $(KIND_CLUSTER_NAME)-control-plane not found. Skipping DNS check."; \
-    fi
-
 ISTIO_CUSTOM_HUB ?= quay.io/raja0940/istio-release
 ISTIO_CUSTOM_TAG ?= 1.26.3-ppc64le
 
@@ -77,53 +46,28 @@ KIND_NODE_IMAGE ?= kindest/node:$(KIND_K8S_VERSION)
 # Custom node image name for ppc64le
 ifeq ($(ARCH),ppc64le)
 	KIND_NODE_IMAGE_PPC64LE := quay.io/powercloud/kind-node:$(KIND_K8S_VERSION)
-else
-	KIND_NODE_IMAGE_PPC64LE := docker.io/kindest/node:$(KIND_K8S_VERSION)
 endif
 
-.PHONY: kind-node-image
-kind-node-image: kind ## Build custom kind node image for ppc64le when needed
-	@if [ "$(ARCH)" = "ppc64le" ]; then \
-		echo "Ensuring custom Kind node image exists for $(ARCH)..."; \
-		if ! $(CONTAINER_ENGINE) image inspect "$(KIND_NODE_IMAGE_PPC64LE)" >/dev/null 2>&1; then \
-			echo "Building $(KIND_NODE_IMAGE_PPC64LE) from Kubernetes release $(KIND_K8S_VERSION)..."; \
-			KIND_EXPERIMENTAL_PROVIDER=$(CONTAINER_ENGINE) $(KIND) build node-image \
-				--image "$(KIND_NODE_IMAGE_PPC64LE)" \
-				--type release \
-				"$(KIND_K8S_VERSION)"; \
-		else \
-			echo "[OK] Custom Kind node image already exists: $(KIND_NODE_IMAGE_PPC64LE)"; \
-		fi; \
-	else \
-		echo "[OK] Default kind node image will be used for $(ARCH)"; \
-	fi
-
 .PHONY: kind-create-cluster
-kind-create-cluster: kind kind-node-image ## Create the "mcp-gateway" kind cluster.
+kind-create-cluster: kind ## Create the "mcp-gateway" kind cluster.
 	@./utils/generate-placeholder-ca.sh
 	@# Set KIND provider for podman
 	@if echo "$(CONTAINER_ENGINE)" | grep -q "podman"; then \
 		export KIND_EXPERIMENTAL_PROVIDER=podman; \
-	fi; \
-	NODE_IMAGE="$(KIND_NODE_IMAGE)"; \
-	if [ "$(ARCH)" = "ppc64le" ]; then \
-		NODE_IMAGE="$(KIND_NODE_IMAGE_PPC64LE)"; \
-	fi; \
+	fi; \	
 	if $(KIND) get clusters | grep -q "^$(KIND_CLUSTER_NAME)$$"; then \
 		echo "Kind cluster '$(KIND_CLUSTER_NAME)' already exists, skipping creation"; \
 	else \
-		echo "Creating Kind cluster '$(KIND_CLUSTER_NAME)' with image $$NODE_IMAGE ..."; \
+		echo "Creating Kind cluster '$(KIND_CLUSTER_NAME)' with MCP_GATEWAY port $(KIND_HOST_PORT_MCP_GATEWAY) and KEYCLOAK port $(KIND_HOST_PORT_KEYCLOAK)..."; \
 		cat config/kind/cluster.yaml | sed \
 			-e 's/hostPort: 8001/hostPort: $(KIND_HOST_PORT_MCP_GATEWAY)/' \
 			-e 's/hostPort: 8002/hostPort: $(KIND_HOST_PORT_KEYCLOAK)/' | \
-		$(KIND) create cluster --name $(KIND_CLUSTER_NAME) --image "$$NODE_IMAGE" --config -; \
-	fi
-	@"$(MAKE)" -s -f build/kind.mk kind-node-dns
-	@"$(MAKE)" -s -f build/kind.mk kind-node-dns-check
+		$(KIND) create cluster --name $(KIND_CLUSTER_NAME) --image "$$KIND_NODE_IMAGE" --config -; \
+	fi	
 	@"$(MAKE)" -s -f build/kind.mk kind-load-custom-istio-images
 
 .PHONY: kind-delete-cluster
-kind-delete-cluster: kind ## Delete the "mcp-gateway" kind cluster.
+kind-delete-cluster: kind # Delete the "mcp-gateway" kind cluster.
 	@# Set KIND provider for podman
 	@if echo "$(CONTAINER_ENGINE)" | grep -q "podman"; then \
 		export KIND_EXPERIMENTAL_PROVIDER=podman; \

@@ -6,6 +6,9 @@
 # get buildx gha layer caching).
 GATEWAY_IMAGE_SOURCE ?= build
 
+# Used to tune on a small dev cluster, where we do one job at a time.
+PARALLELISM ?= 4
+
 .PHONY: ci-gateway-images
 ifeq ($(GATEWAY_IMAGE_SOURCE),prebuilt)
 ci-gateway-images: load-image
@@ -25,19 +28,10 @@ ci-deploy-redis:
 # the installs are independent and each carries its own readiness wait, so run
 # them in parallel; the slowest one bounds the phase
 
-ARCH ?= $(shell uname -m)
 
 .PHONY: ci-install-infra
 ci-install-infra:
-ifeq ($(ARCH),ppc64le)
-	@echo "Installing infra sequentially on ppc64le..."
-	@"$(MAKE)" cert-manager-install
-	@"$(MAKE)" metallb-install
-	@"$(MAKE)" ci-deploy-redis
-	@"$(MAKE)" istio-install
-else
 	@"$(MAKE)" -j4 istio-install metallb-install cert-manager-install ci-deploy-redis
-endif
 
 
 # CI setup for e2e tests
