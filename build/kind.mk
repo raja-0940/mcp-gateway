@@ -54,7 +54,7 @@ kind-create-cluster: kind ## Create the "mcp-gateway" kind cluster.
 	@# Set KIND provider for podman
 	@if echo "$(CONTAINER_ENGINE)" | grep -q "podman"; then \
 		export KIND_EXPERIMENTAL_PROVIDER=podman; \
-	fi; \	
+	fi; \
 	if $(KIND) get clusters | grep -q "^$(KIND_CLUSTER_NAME)$$"; then \
 		echo "Kind cluster '$(KIND_CLUSTER_NAME)' already exists, skipping creation"; \
 	else \
