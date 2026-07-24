@@ -4,20 +4,16 @@ ARCH ?= $(shell uname -m)
 SAIL_VERSION ?= 1.27.0
 ISTIO_NAMESPACE ?= istio-system
 ISTIO_VERSION ?= 1.26.3
-
 TIMEOUT ?= 900s
 
 # istioctl tool
 ISTIOCTL = bin/istioctl
 ISTIO_SRC_DIR = /tmp/istio-src-$(ISTIO_VERSION)
 
-
 ISTIO_MANIFEST ?= config/istio/istio.yaml
-
 ifeq ($(ARCH),ppc64le)
 ISTIO_MANIFEST := config/istio/istio.ppc64le.yaml
 endif
-
 
 $(ISTIOCTL):
 	mkdir -p bin
@@ -41,19 +37,18 @@ istioctl-impl: $(ISTIOCTL)
 	@echo "Version: $$($(ISTIOCTL) version --remote=false)"
 
 .PHONY: istio-install
-istio-install: $(HELM) ## Install Istio using Sail operator
+istio-install: $(HELM) # Install Istio using Sail operator
 	$(HELM) upgrade --install sail-operator \
 		--create-namespace \
-        	--namespace $(ISTIO_NAMESPACE) \
-        	--wait \
-        	--timeout=$(TIMEOUT) \
-        	https://github.com/istio-ecosystem/sail-operator/releases/download/$(SAIL_VERSION)/sail-operator-$(SAIL_VERSION).tgz
+		--namespace $(ISTIO_NAMESPACE) \
+		--wait \
+		--timeout=$(TIMEOUT) \
+		https://github.com/istio-ecosystem/sail-operator/releases/download/$(SAIL_VERSION)/sail-operator-$(SAIL_VERSION).tgz
 	kubectl apply -f $(ISTIO_MANIFEST)
 	kubectl -n $(ISTIO_NAMESPACE) wait --for=condition=Ready istio/default --timeout=$(TIMEOUT)
 
 .PHONY: istio-uninstall
-istio-uninstall: $(HELM) ## Uninstall Istio and Sail operator
+istio-uninstall: $(HELM) # Uninstall Istio and Sail operator
 	- kubectl delete -f $(ISTIO_MANIFEST)
 	$(HELM) uninstall sail-operator -n $(ISTIO_NAMESPACE)
 	- kubectl delete namespace $(ISTIO_NAMESPACE)
-
